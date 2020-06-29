@@ -3,11 +3,13 @@ package servicemirror
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/client-go/tools/cache"
 
 	consts "github.com/linkerd/linkerd2/pkg/k8s"
+	"github.com/linkerd/linkerd2/pkg/multicluster"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -28,7 +30,7 @@ type GatewayMirrorCreated struct {
 	gatewayName      string
 	gatewayNamespace string
 	clusterName      string
-	probeSpec
+	multicluster.ProbeSpec
 }
 
 // GatewayMirrorDeleted is emitted when a mirror of a remote gateway is deleted
@@ -43,7 +45,7 @@ type GatewayMirrorUpdated struct {
 	gatewayName      string
 	gatewayNamespace string
 	clusterName      string
-	probeSpec
+	multicluster.ProbeSpec
 }
 
 // NewProbeManager creates a new probe manager
@@ -103,7 +105,7 @@ func (m *ProbeManager) handleGatewayMirrorCreated(event *GatewayMirrorCreated) {
 	worker, ok := m.probeWorkers[probeKey]
 	if ok {
 		log.Infof("There is already a probe worker for %s. Updating instead of creating", probeKey)
-		worker.UpdateProbeSpec(&event.probeSpec)
+		worker.UpdateProbeSpec(&event.ProbeSpec)
 	} else {
 		log.Infof("Creating probe worker %s", probeKey)
 		probeMetrics, err := m.metricVecs.newWorkerMetrics(event.gatewayNamespace, event.gatewayName, event.clusterName)
@@ -111,7 +113,7 @@ func (m *ProbeManager) handleGatewayMirrorCreated(event *GatewayMirrorCreated) {
 			log.Errorf("Could not crete probe metrics: %s", err)
 		} else {
 			localGatewayName := fmt.Sprintf("%s-%s", event.gatewayName, event.clusterName)
-			worker = NewProbeWorker(localGatewayName, &event.probeSpec, probeMetrics, probeKey)
+			worker = NewProbeWorker(localGatewayName, &event.ProbeSpec, probeMetrics, probeKey)
 			m.probeWorkers[probeKey] = worker
 			worker.Start()
 		}
@@ -122,8 +124,8 @@ func (m *ProbeManager) handleGatewayMirrorUpdated(event *GatewayMirrorUpdated) {
 	probeKey := probeKey(event.gatewayNamespace, event.gatewayName, event.clusterName)
 	worker, ok := m.probeWorkers[probeKey]
 	if ok {
-		if worker.probeSpec.port != event.port || worker.probeSpec.periodInSeconds != event.periodInSeconds || worker.probeSpec.path != event.path {
-			worker.UpdateProbeSpec(&event.probeSpec)
+		if worker.probeSpec.Port != event.Port || worker.probeSpec.Period != event.Period || worker.probeSpec.Path != event.Path {
+			worker.UpdateProbeSpec(&event.ProbeSpec)
 		}
 	} else {
 		log.Infof("Could not find a worker for %s while handling GatewayMirrorUpdated event", probeKey)
@@ -156,7 +158,7 @@ func (m *ProbeManager) run() {
 	}
 }
 
-func extractProbeSpec(svc *corev1.Service) (*probeSpec, error) {
+func extractProbeSpec(svc *corev1.Service) (*multicluster.ProbeSpec, error) {
 	path, hasPath := svc.Annotations[consts.MirroredGatewayProbePath]
 	if !hasPath {
 		return nil, fmt.Errorf("mirrored Gateway service is missing %s annotation", consts.MirroredGatewayProbePath)
@@ -172,15 +174,15 @@ func extractProbeSpec(svc *corev1.Service) (*probeSpec, error) {
 		return nil, fmt.Errorf("mirrored Gateway service is missing %s annotation", consts.MirroredGatewayProbePeriod)
 	}
 
-	probePeriod, err := strconv.ParseUint(period, 10, 32)
+	probePeriodSeconds, err := strconv.ParseUint(period, 10, 32)
 	if err != nil {
 		return nil, err
 	}
 
-	return &probeSpec{
-		path:            path,
-		port:            probePort,
-		periodInSeconds: uint32(probePeriod),
+	return &multicluster.ProbeSpec{
+		Path:   path,
+		Port:   uint32(probePort),
+		Period: time.Duration(probePeriodSeconds) * time.Second,
 	}, nil
 
 }
@@ -217,7 +219,7 @@ func (m *ProbeManager) Start() {
 							gatewayName:      service.Annotations[consts.MirroredGatewayRemoteName],
 							gatewayNamespace: service.Annotations[consts.MirroredGatewayRemoteNameSpace],
 							clusterName:      service.Labels[consts.RemoteClusterNameLabel],
-							probeSpec:        *spec,
+							ProbeSpec:        *spec,
 						})
 					}
 				},
@@ -255,7 +257,7 @@ func (m *ProbeManager) Start() {
 								gatewayName:      newService.Annotations[consts.MirroredGatewayRemoteName],
 								gatewayNamespace: newService.Annotations[consts.MirroredGatewayRemoteNameSpace],
 								clusterName:      newService.Labels[consts.RemoteClusterNameLabel],
-								probeSpec:        *spec,
+								ProbeSpec:        *spec,
 							})
 						}
 					}
