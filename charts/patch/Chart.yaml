@@ -1,7 +1,11 @@
-apiVersion: "v1"
+apiVersion: v2
 name: "patch"
 version: 0.1.0
 description: This chart generates the JSON patch necessary to inject the proxy container into pods
 home: https://linkerd.io
 sources:
-  - https://github.com/linkerd/linkerd2/
+- https://github.com/linkerd/linkerd2/
+dependencies:
+- name: partials
+  version: 0.1.0
+  repository: file://../partials
